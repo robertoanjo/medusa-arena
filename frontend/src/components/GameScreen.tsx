@@ -21,7 +21,6 @@ const CARDS: { type: CardType; emoji: string; labelTop: string; labelBot: string
 export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMakeChoice, onForfeit }: Props) {
   const [confirmForfeit, setConfirmForfeit] = useState(false);
   const {
-    myId,
     myName,
     opponentName,
     myEnergy,
@@ -29,8 +28,8 @@ export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMak
     phase,
     myChoice,
     opponentChoice,
-    lastWinnerId,
-    lastLoserId,
+    lastWinnerName,
+    lastLoserName,
     isTie,
   } = gameState;
 
@@ -38,8 +37,8 @@ export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMak
   const isChoosing  = phase === 'choosing';
   const hasChosen   = !!myChoice && isChoosing;
 
-  const iWon  = isRevealing && lastWinnerId === myId;
-  const iLost = isRevealing && lastLoserId  === myId;
+  const iWon  = isRevealing && lastWinnerName === myName;
+  const iLost = isRevealing && lastLoserName  === myName;
 
   // Round banner text
   let bannerText = '';
@@ -97,8 +96,8 @@ export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMak
           <CardReveal
             card={isRevealing ? opponentChoice : null}
             flipped={isRevealing}
-            isWinner={isRevealing && lastWinnerId !== myId && !isTie}
-            isLoser={isRevealing && lastLoserId  !== myId && !isTie}
+            isWinner={isRevealing && lastWinnerName !== myName && !isTie}
+            isLoser={isRevealing && lastLoserName  !== myName && !isTie}
             label={opponentName}
           />
 

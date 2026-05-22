@@ -1,13 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import socket from './socket';
+import { supabase } from './supabase';
+import type { RealtimeChannel } from '@supabase/supabase-js';
 import type {
-  CardType,
-  Screen,
-  GameState,
-  PlayerStats,
-  GameStartData,
-  RoundResultData,
-  GameOverData,
+  CardType, Screen, GameState, PlayerStats,
+  GameStartPayload, RoundResultPayload, GameOverPayload,
 } from './types';
 import AuthScreen   from './components/AuthScreen';
 import HomeScreen   from './components/HomeScreen';
@@ -19,35 +15,40 @@ const MAX_ENERGY   = 12;
 const TURN_SECONDS = 5;
 
 interface GameOverInfo {
-  won: boolean;
-  myName: string;
+  won:          boolean;
+  myName:       string;
   opponentName: string;
-  myNewPoints: number;
+  myNewPoints:  number;
   pointsChange: number;
 }
 
+function authHeaders(): HeadersInit {
+  return {
+    'Content-Type':  'application/json',
+    'Authorization': `Bearer ${localStorage.getItem('medusa_token') || ''}`,
+  };
+}
+
 export default function App() {
-  // ── Auth state ──────────────────────────────────────────────
-  const [authed, setAuthed] = useState(
-    () => !!localStorage.getItem('medusa_token'),
-  );
-  const [playerName, setPlayerName] = useState(
-    () => localStorage.getItem('medusa_name') || '',
-  );
+  // ── Auth ─────────────────────────────────────────────────────────────────────
+  const [authed,      setAuthed]      = useState(() => !!localStorage.getItem('medusa_token'));
+  const [playerName,  setPlayerName]  = useState(() => localStorage.getItem('medusa_name') || '');
 
-  // ── Game state ──────────────────────────────────────────────
-  const [screen,      setScreen]      = useState<Screen>('home');
-  const [gameState,   setGameState]   = useState<GameState | null>(null);
-  const [gameOverInfo,setGameOverInfo]= useState<GameOverInfo | null>(null);
-  const [leaderboard, setLeaderboard] = useState<PlayerStats[]>([]);
-  const [connected,   setConnected]   = useState(false);
-  const [turnTimeLeft,setTurnTimeLeft]= useState(TURN_SECONDS);
+  // ── Game state ────────────────────────────────────────────────────────────────
+  const [screen,       setScreen]       = useState<Screen>('home');
+  const [gameState,    setGameState]    = useState<GameState | null>(null);
+  const [gameOverInfo, setGameOverInfo] = useState<GameOverInfo | null>(null);
+  const [leaderboard,  setLeaderboard]  = useState<PlayerStats[]>([]);
+  const [turnTimeLeft, setTurnTimeLeft] = useState(TURN_SECONDS);
 
-  const timerRef     = useRef<ReturnType<typeof setInterval> | null>(null);
-  const gameStateRef = useRef<GameState | null>(null);
+  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
+  const revealRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const playerChanRef  = useRef<RealtimeChannel | null>(null);
+  const gameChanRef    = useRef<RealtimeChannel | null>(null);
+  const gameStateRef   = useRef<GameState | null>(null);
   gameStateRef.current = gameState;
 
-  // ── Timer helpers ────────────────────────────────────────────
+  // ── Timer ─────────────────────────────────────────────────────────────────────
   const startTurnTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     setTurnTimeLeft(TURN_SECONDS);
@@ -61,185 +62,257 @@ export default function App() {
 
   const stopTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (revealRef.current) clearTimeout(revealRef.current);
   }, []);
 
-  // ── Connect socket when authed ───────────────────────────────
-  useEffect(() => {
-    if (!authed) {
-      socket.disconnect();
-      return;
-    }
-
-    socket.connect();
-
-    socket.on('connect',    () => { setConnected(true); socket.emit('get_leaderboard'); });
-    socket.on('disconnect', () => setConnected(false));
-    socket.on('connect_error', (err) => {
-      // auth rejected by server
-      if (err.message === 'auth') {
-        handleLogout();
-      }
+  // ── Fetch helpers ─────────────────────────────────────────────────────────────
+  const apiFetch = useCallback(async (path: string, body?: object) => {
+    const res = await fetch(path, {
+      method:  body !== undefined ? 'POST' : 'GET',
+      headers: authHeaders(),
+      body:    body !== undefined ? JSON.stringify(body) : undefined,
     });
+    return res;
+  }, []);
 
-    socket.on('queue_joined', () => setScreen('waiting'));
+  const fetchLeaderboard = useCallback(async () => {
+    const res = await apiFetch('/api/leaderboard');
+    if (res.ok) setLeaderboard(await res.json());
+  }, [apiFetch]);
 
-    socket.on('game_start', (data: GameStartData) => {
-      const gs: GameState = {
-        gameId: data.gameId, myId: data.myId,
-        myName: data.myName, opponentName: data.opponentName,
-        myEnergy: MAX_ENERGY, opponentEnergy: MAX_ENERGY,
-        phase: 'choosing', myChoice: null, opponentChoice: null,
-        turnNumber: 1, lastWinnerId: null, lastLoserId: null, isTie: false,
-      };
-      setGameState(gs);
-      setScreen('playing');
-    });
+  // ── Subscribe to game channel ─────────────────────────────────────────────────
+  const subscribeToGame = useCallback((gameId: string, initialState: GameState) => {
+    if (gameChanRef.current) gameChanRef.current.unsubscribe();
 
-    socket.on('turn_start', (data: { turnNumber: number; gameId?: string }) => {
+    const chan = supabase.channel(`game:${gameId}`);
+
+    chan.on('broadcast', { event: 'round_result' }, ({ payload }: { payload: RoundResultPayload }) => {
+      stopTimer();
+      if (revealRef.current) clearTimeout(revealRef.current);
+
       setGameState(prev => {
         if (!prev) return prev;
         return {
           ...prev,
-          gameId: data.gameId ?? prev.gameId,
+          phase:          'revealing',
+          myChoice:       (payload.choices[prev.myName]       as CardType) ?? prev.myChoice,
+          opponentChoice: (payload.choices[prev.opponentName] as CardType) ?? null,
+          myEnergy:       payload.energies[prev.myName]       ?? prev.myEnergy,
+          opponentEnergy: payload.energies[prev.opponentName] ?? prev.opponentEnergy,
+          lastWinnerName: payload.winnerName,
+          lastLoserName:  payload.loserName,
+          isTie:          payload.winnerName === null,
+        };
+      });
+
+      // After reveal animation, start next turn
+      revealRef.current = setTimeout(() => {
+        setGameState(prev => prev ? {
+          ...prev,
           phase: 'choosing', myChoice: null, opponentChoice: null,
-          turnNumber: data.turnNumber,
-          lastWinnerId: null, lastLoserId: null, isTie: false,
-        };
-      });
-      startTurnTimer();
+          turnNumber: prev.turnNumber + 1,
+          lastWinnerName: null, lastLoserName: null, isTie: false,
+        } : prev);
+        startTurnTimer();
+      }, 2500);
     });
 
-    socket.on('choice_confirmed', ({ card }: { card: CardType }) => {
-      setGameState(prev => prev ? { ...prev, myChoice: card } : prev);
-    });
-
-    socket.on('round_result', (data: RoundResultData) => {
+    chan.on('broadcast', { event: 'game_over' }, ({ payload }: { payload: GameOverPayload }) => {
       stopTimer();
-      setGameState(prev => {
-        if (!prev) return prev;
-        const oppId = Object.keys(data.choices).find(id => id !== prev.myId);
-        return {
-          ...prev,
-          phase: 'revealing',
-          myChoice:       data.choices[prev.myId] ?? prev.myChoice,
-          opponentChoice: oppId ? data.choices[oppId] : null,
-          myEnergy:       data.energies[prev.myId]  ?? prev.myEnergy,
-          opponentEnergy: oppId ? (data.energies[oppId] ?? prev.opponentEnergy) : prev.opponentEnergy,
-          lastWinnerId: data.winnerId, lastLoserId: data.loserId,
-          isTie: data.result === 'TIE',
-        };
-      });
-    });
-
-    socket.on('game_over', (data: GameOverData) => {
-      stopTimer();
-      setGameState(prev => {
-        if (!prev) return prev;
-        const won = data.winnerId === prev.myId;
-        setGameOverInfo({
-          won, myName: prev.myName,
-          opponentName: won ? data.loserName : data.winnerName,
-          myNewPoints:  data.stats[prev.myId]?.points ?? 0,
-          pointsChange: won ? 10 : -5,
-        });
-        return prev;
+      if (revealRef.current) clearTimeout(revealRef.current);
+      const gs = gameStateRef.current;
+      if (!gs) return;
+      const won = payload.winnerName === gs.myName;
+      setGameOverInfo({
+        won, myName: gs.myName,
+        opponentName:  won ? payload.loserName : payload.winnerName,
+        myNewPoints:   payload.stats[gs.myName]?.points ?? 0,
+        pointsChange:  won ? 10 : -5,
       });
       setTimeout(() => setScreen('gameover'), 300);
     });
 
-    const handleForfeitWin = () => {
+    chan.on('broadcast', { event: 'opponent_forfeited' }, () => {
       stopTimer();
-      const prev = gameStateRef.current;
-      if (prev) setGameOverInfo({ won: true, myName: prev.myName, opponentName: prev.opponentName, myNewPoints: 0, pointsChange: 10 });
+      if (revealRef.current) clearTimeout(revealRef.current);
+      const gs = gameStateRef.current;
+      if (!gs) return;
+      setGameOverInfo({ won: true, myName: gs.myName, opponentName: gs.opponentName, myNewPoints: 0, pointsChange: 10 });
       setTimeout(() => setScreen('gameover'), 300);
-    };
-    socket.on('opponent_forfeited', handleForfeitWin);
-    socket.on('opponent_left',      handleForfeitWin);
+    });
 
-    socket.on('leaderboard', (data: PlayerStats[]) => setLeaderboard(data));
-    socket.on('error_msg',   (data: { message: string }) => alert(data.message));
+    chan.subscribe();
+    gameChanRef.current = chan;
 
-    if (socket.connected) { setConnected(true); socket.emit('get_leaderboard'); }
+    setGameState(initialState);
+    setScreen('playing');
+    startTurnTimer();
+  }, [startTurnTimer, stopTimer]);
+
+  // ── Subscribe to player channel after login ────────────────────────────────────
+  useEffect(() => {
+    if (!authed || !playerName) return;
+
+    fetchLeaderboard();
+
+    if (playerChanRef.current) playerChanRef.current.unsubscribe();
+
+    const chan = supabase.channel(`player:${playerName}`);
+
+    chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
+      // Unsubscribe from player channel, move to game channel
+      chan.unsubscribe();
+      playerChanRef.current = null;
+
+      const gs: GameState = {
+        gameId:         payload.gameId,
+        myName:         payload.myName,
+        opponentName:   payload.opponentName,
+        myEnergy:       MAX_ENERGY,
+        opponentEnergy: MAX_ENERGY,
+        phase:          'choosing',
+        myChoice:       null,
+        opponentChoice: null,
+        turnNumber:     1,
+        lastWinnerName: null,
+        lastLoserName:  null,
+        isTie:          false,
+      };
+      subscribeToGame(payload.gameId, gs);
+    });
+
+    chan.subscribe();
+    playerChanRef.current = chan;
 
     return () => {
-      socket.off('connect'); socket.off('disconnect'); socket.off('connect_error');
-      socket.off('queue_joined'); socket.off('game_start'); socket.off('turn_start');
-      socket.off('choice_confirmed'); socket.off('round_result'); socket.off('game_over');
-      socket.off('opponent_forfeited'); socket.off('opponent_left');
-      socket.off('leaderboard'); socket.off('error_msg');
-      stopTimer();
+      chan.unsubscribe();
+      playerChanRef.current = null;
     };
-  }, [authed, startTurnTimer, stopTimer]);
+  }, [authed, playerName, fetchLeaderboard, subscribeToGame]);
 
-  // ── Handlers ─────────────────────────────────────────────────
+  // Cleanup on unmount
+  useEffect(() => () => { stopTimer(); }, [stopTimer]);
+
+  // ── Handlers ──────────────────────────────────────────────────────────────────
   const handleAuth = (_token: string, name: string) => {
     setPlayerName(name);
     setAuthed(true);
   };
 
-  const SERVER_URL =
-    import.meta.env.VITE_SERVER_URL ||
-    (import.meta.env.DEV ? 'http://localhost:3001' : window.location.origin);
-
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const token = localStorage.getItem('medusa_token');
-    if (token) fetch(`${SERVER_URL}/auth/logout`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-    }).catch(() => {});
+    if (token) fetch('/api/auth/logout', { method: 'POST', headers: authHeaders() }).catch(() => {});
     localStorage.removeItem('medusa_token');
     localStorage.removeItem('medusa_name');
-    socket.disconnect();
+    playerChanRef.current?.unsubscribe();
+    gameChanRef.current?.unsubscribe();
+    playerChanRef.current = null;
+    gameChanRef.current   = null;
+    stopTimer();
     setAuthed(false);
     setScreen('home');
     setGameState(null);
     setGameOverInfo(null);
-    setConnected(false);
   };
 
-  const handleJoin = () => {
-    socket.emit('join_queue');
+  const handleJoin = async () => {
+    setScreen('waiting');
+    const res = await apiFetch('/api/game/join-queue', {});
+    if (!res.ok) { setScreen('home'); return; }
+    const data = await res.json();
+    // If matched immediately (no one was in queue before us but server found someone atomically)
+    if (data.status === 'matched' && data.game) {
+      // game_start will also arrive via Realtime; guard against double-init with gameState check
+      if (!gameStateRef.current) {
+        const gs: GameState = {
+          gameId:         data.game.gameId,
+          myName:         data.game.myName,
+          opponentName:   data.game.opponentName,
+          myEnergy:       MAX_ENERGY,
+          opponentEnergy: MAX_ENERGY,
+          phase:          'choosing',
+          myChoice:       null, opponentChoice: null,
+          turnNumber:     1,
+          lastWinnerName: null, lastLoserName: null, isTie: false,
+        };
+        subscribeToGame(data.game.gameId, gs);
+      }
+    }
+    // If 'queued': stay on waiting screen, game_start arrives via player channel
   };
 
-  const handleCancelQueue = () => {
-    socket.emit('leave_queue');
+  const handleCancelQueue = async () => {
+    await apiFetch('/api/game/leave-queue', {});
     setScreen('home');
   };
 
-  const handleMakeChoice = (card: CardType) => {
-    if (!gameState || gameState.phase !== 'choosing' || gameState.myChoice) return;
-    socket.emit('make_choice', { gameId: gameState.gameId, card });
+  const handleMakeChoice = async (card: CardType) => {
+    const gs = gameStateRef.current;
+    if (!gs || gs.phase !== 'choosing' || gs.myChoice) return;
+    setGameState(prev => prev ? { ...prev, myChoice: card } : prev);
+    const res = await apiFetch('/api/game/make-choice', { card, gameId: gs.gameId });
+    if (!res.ok) {
+      setGameState(prev => prev ? { ...prev, myChoice: null } : prev);
+    }
   };
 
-  const handleForfeit = () => {
-    socket.emit('forfeit');
+  // Auto-submit random choice when timer hits 0
+  useEffect(() => {
+    if (turnTimeLeft !== 0 || screen !== 'playing') return;
+    const gs = gameStateRef.current;
+    if (!gs || gs.phase !== 'choosing' || gs.myChoice) return;
+    const cards: CardType[] = ['SHIELD', 'VEIL', 'MEDUSA'];
+    handleMakeChoice(cards[Math.floor(Math.random() * cards.length)]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [turnTimeLeft, screen]);
+
+  const handleForfeit = async () => {
+    const gs = gameStateRef.current;
+    if (!gs) return;
+    await apiFetch('/api/game/forfeit', { gameId: gs.gameId });
+    // game_over event comes via Realtime to both players
   };
 
   const handlePlayAgain = () => {
-    socket.emit('get_leaderboard');
+    gameChanRef.current?.unsubscribe();
+    gameChanRef.current = null;
+
+    // Re-subscribe to player channel
+    if (playerName) {
+      const chan = supabase.channel(`player:${playerName}`);
+      chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
+        chan.unsubscribe();
+        playerChanRef.current = null;
+        const gs: GameState = {
+          gameId: payload.gameId, myName: payload.myName, opponentName: payload.opponentName,
+          myEnergy: MAX_ENERGY, opponentEnergy: MAX_ENERGY,
+          phase: 'choosing', myChoice: null, opponentChoice: null,
+          turnNumber: 1, lastWinnerName: null, lastLoserName: null, isTie: false,
+        };
+        subscribeToGame(payload.gameId, gs);
+      });
+      chan.subscribe();
+      playerChanRef.current = chan;
+    }
+
+    fetchLeaderboard();
     setScreen('home');
     setGameState(null);
     setGameOverInfo(null);
   };
 
-  // ── Render ───────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────────
   if (!authed) return <AuthScreen onAuth={handleAuth} />;
 
   return (
     <div className="app">
-      {!connected && (
-        <div className="connection-banner">
-          <span>⚡ Conectando ao servidor...</span>
-        </div>
-      )}
-
       {screen === 'home' && (
         <HomeScreen
           playerName={playerName}
           leaderboard={leaderboard}
           onJoin={handleJoin}
           onLogout={handleLogout}
-          onRefreshLeaderboard={() => socket.emit('get_leaderboard')}
+          onRefreshLeaderboard={fetchLeaderboard}
         />
       )}
 

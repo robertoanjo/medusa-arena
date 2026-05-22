@@ -1,55 +1,48 @@
-export type CardType = 'SHIELD' | 'VEIL' | 'MEDUSA';
-export type Screen = 'home' | 'waiting' | 'playing' | 'gameover';
+export type CardType  = 'SHIELD' | 'VEIL' | 'MEDUSA';
+export type Screen    = 'home' | 'waiting' | 'playing' | 'gameover';
 export type GamePhase = 'choosing' | 'revealing';
 
 export interface PlayerStats {
-  name: string;
-  wins: number;
+  name:   string;
+  wins:   number;
   losses: number;
   points: number;
 }
 
-export interface GameStartData {
-  gameId: string;
-  myId: string;
-  myName: string;
-  opponentId: string;
+export interface GameStartPayload {
+  gameId:       string;
+  myName:       string;
   opponentName: string;
-  myEnergy: number;
+  myEnergy:     number;
   opponentEnergy: number;
-  myStats: PlayerStats;
-  opponentStats: PlayerStats;
 }
 
-export interface RoundResultData {
-  choices: Record<string, CardType>;
-  result: 'TIE' | 'A' | 'B';
-  winnerId: string | null;
-  loserId: string | null;
-  energies: Record<string, number>;
-  autoChoice: Record<string, boolean>;
+export interface RoundResultPayload {
+  choices:    Record<string, CardType>;
+  result:     'TIE' | 'A' | 'B';
+  winnerName: string | null;
+  loserName:  string | null;
+  energies:   Record<string, number>;
 }
 
-export interface GameOverData {
-  winnerId: string;
-  loserId: string;
+export interface GameOverPayload {
   winnerName: string;
-  loserName: string;
-  stats: Record<string, PlayerStats>;
+  loserName:  string;
+  forfeit?:   boolean;
+  stats:      Record<string, PlayerStats>;
 }
 
 export interface GameState {
-  gameId: string;
-  myId: string;
-  myName: string;
-  opponentName: string;
-  myEnergy: number;
+  gameId:         string;
+  myName:         string;
+  opponentName:   string;
+  myEnergy:       number;
   opponentEnergy: number;
-  phase: GamePhase;
-  myChoice: CardType | null;
+  phase:          GamePhase;
+  myChoice:       CardType | null;
   opponentChoice: CardType | null;
-  turnNumber: number;
-  lastWinnerId: string | null;
-  lastLoserId: string | null;
-  isTie: boolean;
+  turnNumber:     number;
+  lastWinnerName: string | null;
+  lastLoserName:  string | null;
+  isTie:          boolean;
 }
