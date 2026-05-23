@@ -10,15 +10,16 @@ module.exports = async function handler(req, res) {
 
   // ── GET: check current game/queue status (polling fallback) ──────────────────
   if (req.method === 'GET') {
-    const { data: game, error: gameErr } = await db
+    // Use limit(1) + order so multiple active games (e.g. stale data) never error
+    const { data: games } = await db
       .from('games')
       .select('id, player_a, player_b, energy_a, energy_b, phase, turn_number')
       .or(`player_a.eq.${player.name},player_b.eq.${player.name}`)
       .eq('ended', false)
-      .maybeSingle();
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-    if (gameErr) console.error('[JQ-GET-ERR]' + gameErr.message);
-    if (game) console.log('[JQ-GET-GAME]' + game.id);
+    const game = games?.[0] ?? null;
 
     if (game) {
       const isA = game.player_a === player.name;
@@ -46,13 +47,7 @@ module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
   const { data, error } = await db.rpc('fn_join_queue', { p_name: player.name });
-  if (error) {
-    console.error('[JQ-RPC-ERR]' + error.message);
-    console.error('[JQ-RPC-CODE]' + error.code);
-    return res.status(500).json({ error: 'Erro interno.' });
-  }
-
-  console.log('[JQ-RPC-DATA]' + JSON.stringify(data));
+  if (error) { console.error(error); return res.status(500).json({ error: 'Erro interno.' }); }
 
   if (data.status === 'queued') return res.json({ status: 'queued' });
 
