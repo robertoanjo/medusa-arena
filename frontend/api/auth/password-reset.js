@@ -40,7 +40,9 @@ module.exports = async function handler(req, res) {
           .insert({ player_name: player.name, token, expires_at: expiresAt });
 
         if (insertErr) {
-          console.error('password-reset insert error:', insertErr.message, insertErr.code);
+          console.error('[PR-ERR-MSG]' + insertErr.message);
+          console.error('[PR-ERR-CODE]' + insertErr.code);
+          console.error('[PR-ERR-DETAIL]' + insertErr.details);
         } else {
           await sendPasswordResetEmail(player.email, token).catch(console.error);
         }
