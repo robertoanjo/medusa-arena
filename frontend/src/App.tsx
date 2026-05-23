@@ -2,14 +2,17 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { supabase } from './supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import type {
-  CardType, Screen, GameState, PlayerStats,
+  CardType, Screen, GameState, GamePhase, PlayerStats,
   GameStartPayload, RoundResultPayload, GameOverPayload,
 } from './types';
-import AuthScreen   from './components/AuthScreen';
-import HomeScreen   from './components/HomeScreen';
-import WaitingScreen from './components/WaitingScreen';
-import GameScreen   from './components/GameScreen';
-import GameOver     from './components/GameOver';
+import AuthScreen        from './components/AuthScreen';
+import HomeScreen        from './components/HomeScreen';
+import WaitingScreen     from './components/WaitingScreen';
+import GameScreen        from './components/GameScreen';
+import GameOver          from './components/GameOver';
+import ProfileScreen       from './components/ProfileScreen';
+import VerifyEmailScreen   from './components/VerifyEmailScreen';
+import ResetPasswordScreen from './components/ResetPasswordScreen';
 
 const MAX_ENERGY   = 12;
 const TURN_SECONDS = 5;
@@ -31,8 +34,13 @@ function authHeaders(): HeadersInit {
 
 export default function App() {
   // ── Auth ─────────────────────────────────────────────────────────────────────
-  const [authed,      setAuthed]      = useState(() => !!localStorage.getItem('medusa_token'));
-  const [playerName,  setPlayerName]  = useState(() => localStorage.getItem('medusa_name') || '');
+  const [authed,           setAuthed]           = useState(() => !!localStorage.getItem('medusa_token'));
+  const [playerName,       setPlayerName]       = useState(() => localStorage.getItem('medusa_name') || '');
+  const [emailVerifiedMsg, setEmailVerifiedMsg] = useState('');
+  const [resetToken,       setResetToken]       = useState<string | null>(() => {
+    const p = new URLSearchParams(window.location.search);
+    return p.get('reset');
+  });
 
   // ── Game state ────────────────────────────────────────────────────────────────
   const [screen,       setScreen]       = useState<Screen>('home');
@@ -47,6 +55,33 @@ export default function App() {
   const gameChanRef    = useRef<RealtimeChannel | null>(null);
   const gameStateRef   = useRef<GameState | null>(null);
   gameStateRef.current = gameState;
+
+  // ── Password reset via URL param ─────────────────────────────────────────────
+  useEffect(() => {
+    if (resetToken) window.history.replaceState({}, '', '/');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Email verification via URL param ─────────────────────────────────────────
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const vToken = params.get('verify');
+    if (!vToken) return;
+    window.history.replaceState({}, '', '/');
+    const isAuthed = !!localStorage.getItem('medusa_token');
+    fetch('/api/auth/verify-email', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ token: vToken }),
+    })
+      .then(r => {
+        if (!r.ok) return;
+        if (isAuthed) setScreen(s => s === 'verify-email' ? 'home' : s);
+        else          setEmailVerifiedMsg('E-mail verificado! Faça login para entrar na arena.');
+      })
+      .catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Timer ─────────────────────────────────────────────────────────────────────
   const startTurnTimer = useCallback(() => {
@@ -164,6 +199,11 @@ export default function App() {
       chan.unsubscribe();
       playerChanRef.current = null;
 
+      // Guard: if the game was already started by the API response (matched player),
+      // don't re-init — a second subscribeToGame call would cancel the existing game
+      // channel and lose any in-flight round_result events.
+      if (gameStateRef.current) return;
+
       const gs: GameState = {
         gameId:         payload.gameId,
         myName:         payload.myName,
@@ -189,6 +229,39 @@ export default function App() {
       playerChanRef.current = null;
     };
   }, [authed, playerName, fetchLeaderboard, subscribeToGame]);
+
+  // ── Polling fallback while waiting for a match ───────────────────────────────
+  // Catches game_start broadcasts that arrive before the Realtime WS is ready.
+  useEffect(() => {
+    if (screen !== 'waiting') return;
+    const poll = async () => {
+      if (gameStateRef.current) return;
+      try {
+        const res = await fetch('/api/game/join-queue', { headers: authHeaders() });
+        if (!res.ok) return;
+        const d = await res.json();
+        if (d.status === 'in_game' && !gameStateRef.current) {
+          const gs: GameState = {
+            gameId:         d.gameId,
+            myName:         d.myName,
+            opponentName:   d.opponentName,
+            myEnergy:       d.myEnergy,
+            opponentEnergy: d.opponentEnergy,
+            phase:          d.phase as GamePhase,
+            myChoice:       null,
+            opponentChoice: null,
+            turnNumber:     d.turnNumber,
+            lastWinnerName: null,
+            lastLoserName:  null,
+            isTie:          false,
+          };
+          subscribeToGame(d.gameId, gs);
+        }
+      } catch { /* ignore */ }
+    };
+    const id = setInterval(poll, 4000);
+    return () => clearInterval(id);
+  }, [screen, subscribeToGame]);
 
   // Cleanup on unmount
   useEffect(() => () => { stopTimer(); }, [stopTimer]);
@@ -242,35 +315,50 @@ export default function App() {
   };
 
   const handleCancelQueue = async () => {
-    await apiFetch('/api/game/leave-queue', {});
+    await fetch('/api/game/join-queue', { method: 'DELETE', headers: authHeaders() });
     setScreen('home');
   };
 
-  const handleMakeChoice = async (card: CardType) => {
+  const handleMakeChoice = async (card: CardType, isTimeout = false) => {
     const gs = gameStateRef.current;
     if (!gs || gs.phase !== 'choosing' || gs.myChoice) return;
     setGameState(prev => prev ? { ...prev, myChoice: card } : prev);
-    const res = await apiFetch('/api/game/make-choice', { card, gameId: gs.gameId });
+    const res = await apiFetch('/api/game/make-choice', { card, gameId: gs.gameId, isTimeout });
     if (!res.ok) {
       setGameState(prev => prev ? { ...prev, myChoice: null } : prev);
     }
   };
 
-  // Auto-submit random choice when timer hits 0
+  // Auto-submit random choice when timer hits 0 (with timeout energy penalty)
   useEffect(() => {
     if (turnTimeLeft !== 0 || screen !== 'playing') return;
     const gs = gameStateRef.current;
     if (!gs || gs.phase !== 'choosing' || gs.myChoice) return;
     const cards: CardType[] = ['SHIELD', 'VEIL', 'MEDUSA'];
-    handleMakeChoice(cards[Math.floor(Math.random() * cards.length)]);
+    handleMakeChoice(cards[Math.floor(Math.random() * cards.length)], true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [turnTimeLeft, screen]);
 
   const handleForfeit = async () => {
     const gs = gameStateRef.current;
     if (!gs) return;
-    await apiFetch('/api/game/forfeit', { gameId: gs.gameId });
-    // game_over event comes via Realtime to both players
+    stopTimer();
+    const res = await apiFetch('/api/game/forfeit', { gameId: gs.gameId });
+    if (res.ok) {
+      // Immediately show defeat for the forfeiting player.
+      // The opponent receives game_over via Realtime broadcast.
+      gameChanRef.current?.unsubscribe();
+      gameChanRef.current = null;
+      setGameOverInfo({
+        won:          false,
+        myName:       gs.myName,
+        opponentName: gs.opponentName,
+        myNewPoints:  0,
+        pointsChange: -5,
+      });
+      setGameState(null);
+      setScreen('gameover');
+    }
   };
 
   const handlePlayAgain = () => {
@@ -283,6 +371,7 @@ export default function App() {
       chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
         chan.unsubscribe();
         playerChanRef.current = null;
+        if (gameStateRef.current) return; // Already started — avoid double-init
         const gs: GameState = {
           gameId: payload.gameId, myName: payload.myName, opponentName: payload.opponentName,
           myEnergy: MAX_ENERGY, opponentEnergy: MAX_ENERGY,
@@ -302,7 +391,22 @@ export default function App() {
   };
 
   // ── Render ────────────────────────────────────────────────────────────────────
-  if (!authed) return <AuthScreen onAuth={handleAuth} />;
+  if (resetToken) return (
+    <ResetPasswordScreen
+      token={resetToken}
+      onDone={(msg) => { setResetToken(null); setEmailVerifiedMsg(msg); }}
+    />
+  );
+
+  if (!authed) return <AuthScreen onAuth={handleAuth} verifiedMsg={emailVerifiedMsg} />;
+
+  if (screen === 'profile') return (
+    <ProfileScreen
+      token={localStorage.getItem('medusa_token') || ''}
+      onBack={() => setScreen('home')}
+      onLogout={handleLogout}
+    />
+  );
 
   return (
     <div className="app">
@@ -312,6 +416,7 @@ export default function App() {
           leaderboard={leaderboard}
           onJoin={handleJoin}
           onLogout={handleLogout}
+          onProfile={() => setScreen('profile')}
           onRefreshLeaderboard={fetchLeaderboard}
         />
       )}
