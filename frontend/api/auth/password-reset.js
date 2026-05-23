@@ -5,12 +5,6 @@ const crypto                     = require('crypto');
 
 module.exports = async function handler(req, res) {
 
-  // ── GET → diagnóstico: tabelas acessíveis via HTTP API ───────────────────────
-  if (req.method === 'GET') {
-    const { data, error } = await db.from('password_resets').select('id').limit(1);
-    return res.json({ password_resets_accessible: !error, error: error?.message });
-  }
-
   // ── POST { email } → solicitar reset ─────────────────────────────────────────
   if (req.method === 'POST') {
     const { email } = req.body || {};
@@ -40,9 +34,7 @@ module.exports = async function handler(req, res) {
           .insert({ player_name: player.name, token, expires_at: expiresAt });
 
         if (insertErr) {
-          console.error('[PR-ERR-MSG]' + insertErr.message);
-          console.error('[PR-ERR-CODE]' + insertErr.code);
-          console.error('[PR-ERR-DETAIL]' + insertErr.details);
+          console.error('password-reset insert error:', insertErr.message, insertErr.code);
         } else {
           await sendPasswordResetEmail(player.email, token).catch(console.error);
         }
