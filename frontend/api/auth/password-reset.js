@@ -1,23 +1,14 @@
-const { q }                    = require('../_lib/db');
+const { db }                     = require('../_lib/supabase-admin');
 const { sendPasswordResetEmail } = require('../_lib/mailer');
-const bcrypt                   = require('bcryptjs');
-const crypto                   = require('crypto');
+const bcrypt                     = require('bcryptjs');
+const crypto                     = require('crypto');
 
 module.exports = async function handler(req, res) {
 
-  // ── GET → diagnóstico temporário (tabelas do schema medusa) ──────────────────
+  // ── GET → diagnóstico: tabelas acessíveis via HTTP API ───────────────────────
   if (req.method === 'GET') {
-    try {
-      const tables = await q(
-        `SELECT table_name FROM information_schema.tables WHERE table_schema = 'medusa' ORDER BY table_name`
-      );
-      const cols = await q(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema = 'medusa' AND table_name = 'password_resets' ORDER BY ordinal_position`
-      );
-      return res.json({ tables: tables.map(r => r.table_name), password_resets_cols: cols.map(r => r.column_name) });
-    } catch (err) {
-      return res.status(500).json({ error: err.message, code: err.code });
-    }
+    const { data, error } = await db.from('password_resets').select('id').limit(1);
+    return res.json({ password_resets_accessible: !error, error: error?.message });
   }
 
   // ── POST { email } → solicitar reset ─────────────────────────────────────────
@@ -27,33 +18,35 @@ module.exports = async function handler(req, res) {
 
     // Always respond OK to avoid revealing whether email exists
     try {
-      const players = await q(
-        'SELECT name, email FROM medusa.players WHERE email = $1',
-        [email.trim().toLowerCase()]
-      );
-      const player = players[0];
+      const { data: player } = await db
+        .from('players')
+        .select('name, email')
+        .eq('email', email.trim().toLowerCase())
+        .single();
 
       if (player?.email) {
         const token     = crypto.randomBytes(32).toString('hex');
-        const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
 
         // Clean up old unused tokens for this player
-        await q(
-          'DELETE FROM medusa.password_resets WHERE player_name = $1 AND used = FALSE',
-          [player.name]
-        );
+        await db
+          .from('password_resets')
+          .delete()
+          .eq('player_name', player.name)
+          .eq('used', false);
 
-        await q(
-          'INSERT INTO medusa.password_resets (player_name, token, expires_at) VALUES ($1, $2, $3)',
-          [player.name, token, expiresAt]
-        );
+        const { error: insertErr } = await db
+          .from('password_resets')
+          .insert({ player_name: player.name, token, expires_at: expiresAt });
 
-        await sendPasswordResetEmail(player.email, token).catch(console.error);
+        if (insertErr) {
+          console.error('password-reset insert error:', insertErr.message, insertErr.code);
+        } else {
+          await sendPasswordResetEmail(player.email, token).catch(console.error);
+        }
       }
     } catch (err) {
-      console.error('password-reset POST error msg:', err?.message);
-      console.error('password-reset POST error code:', err?.code);
-      console.error('password-reset POST error stack:', err?.stack?.slice(0, 400));
+      console.error('password-reset POST error:', err?.message, err?.code);
     }
 
     return res.json({ ok: true });
@@ -68,11 +61,11 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Senha deve ter ao menos 8 caracteres.' });
 
     try {
-      const resets = await q(
-        'SELECT player_name, expires_at, used FROM medusa.password_resets WHERE token = $1',
-        [token]
-      );
-      const reset = resets[0];
+      const { data: reset } = await db
+        .from('password_resets')
+        .select('player_name, expires_at, used')
+        .eq('token', token)
+        .single();
 
       if (!reset)
         return res.status(400).json({ error: 'Link inválido. Solicite um novo.' });
@@ -83,23 +76,25 @@ module.exports = async function handler(req, res) {
 
       const passwordHash = await bcrypt.hash(newPassword, 10);
 
-      await q(
-        'UPDATE medusa.players SET password_hash = $1 WHERE name = $2',
-        [passwordHash, reset.player_name]
-      );
-      await q(
-        'UPDATE medusa.password_resets SET used = TRUE WHERE token = $1',
-        [token]
-      );
+      await db
+        .from('players')
+        .update({ password_hash: passwordHash })
+        .eq('name', reset.player_name);
+
+      await db
+        .from('password_resets')
+        .update({ used: true })
+        .eq('token', token);
+
       // Invalidate all sessions for security
-      await q(
-        'DELETE FROM medusa.sessions WHERE player_name = $1',
-        [reset.player_name]
-      );
+      await db
+        .from('sessions')
+        .delete()
+        .eq('player_name', reset.player_name);
 
       return res.json({ ok: true });
     } catch (err) {
-      console.error('password-reset PUT error:', err);
+      console.error('password-reset PUT error:', err?.message);
       return res.status(500).json({ error: 'Erro interno.' });
     }
   }
