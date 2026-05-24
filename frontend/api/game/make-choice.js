@@ -45,10 +45,11 @@ module.exports = async function handler(req, res) {
   if (error) { console.error(error); return res.status(500).json({ error: 'Erro interno.' }); }
   if (!data)  return res.status(400).json({ error: 'Partida não encontrada.' });
 
-  res.json({ confirmed: true, card, isTimeout: !!isTimeout });
+  // First player to submit: choice recorded, waiting for opponent
+  if (!data.resolved) return res.json({ confirmed: true, card, isTimeout: !!isTimeout });
 
-  if (!data.resolved) return;
-
+  // Second player to submit: resolve round, broadcast BEFORE responding
+  // (Vercel may kill the Lambda right after res.json(), so broadcast must come first)
   const roundPayload = {
     choices:    { [data.player_a]: data.card_a, [data.player_b]: data.card_b },
     result:     data.result,
@@ -75,4 +76,5 @@ module.exports = async function handler(req, res) {
   }
 
   await broadcast(messages);
+  res.json({ confirmed: true, card, isTimeout: !!isTimeout });
 };
