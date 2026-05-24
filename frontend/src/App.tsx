@@ -14,8 +14,7 @@ import ProfileScreen       from './components/ProfileScreen';
 import VerifyEmailScreen   from './components/VerifyEmailScreen';
 import ResetPasswordScreen from './components/ResetPasswordScreen';
 
-const MAX_ENERGY   = 12;
-const TURN_SECONDS = 5;
+const MAX_ENERGY = 12;
 
 interface GameOverInfo {
   won:          boolean;
@@ -47,9 +46,7 @@ export default function App() {
   const [gameState,    setGameState]    = useState<GameState | null>(null);
   const [gameOverInfo, setGameOverInfo] = useState<GameOverInfo | null>(null);
   const [leaderboard,  setLeaderboard]  = useState<PlayerStats[]>([]);
-  const [turnTimeLeft, setTurnTimeLeft] = useState(TURN_SECONDS);
 
-  const timerRef       = useRef<ReturnType<typeof setInterval> | null>(null);
   const revealRef      = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playerChanRef  = useRef<RealtimeChannel | null>(null);
   const gameChanRef    = useRef<RealtimeChannel | null>(null);
@@ -83,20 +80,8 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Timer ─────────────────────────────────────────────────────────────────────
-  const startTurnTimer = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
-    setTurnTimeLeft(TURN_SECONDS);
-    timerRef.current = setInterval(() => {
-      setTurnTimeLeft(prev => {
-        if (prev <= 1) { clearInterval(timerRef.current!); return 0; }
-        return prev - 1;
-      });
-    }, 1000);
-  }, []);
-
-  const stopTimer = useCallback(() => {
-    if (timerRef.current) clearInterval(timerRef.current);
+  // ── Clear any in-flight reveal animation ──────────────────────────────────────
+  const clearReveal = useCallback(() => {
     if (revealRef.current) clearTimeout(revealRef.current);
   }, []);
 
@@ -122,8 +107,7 @@ export default function App() {
     const chan = supabase.channel(`game:${gameId}`);
 
     chan.on('broadcast', { event: 'round_result' }, ({ payload }: { payload: RoundResultPayload }) => {
-      stopTimer();
-      if (revealRef.current) clearTimeout(revealRef.current);
+      clearReveal();
 
       setGameState(prev => {
         if (!prev) return prev;
@@ -140,7 +124,7 @@ export default function App() {
         };
       });
 
-      // After reveal animation, start next turn
+      // After reveal animation, reset for next turn
       revealRef.current = setTimeout(() => {
         setGameState(prev => prev ? {
           ...prev,
@@ -148,13 +132,11 @@ export default function App() {
           turnNumber: prev.turnNumber + 1,
           lastWinnerName: null, lastLoserName: null, isTie: false,
         } : prev);
-        startTurnTimer();
       }, 2500);
     });
 
     chan.on('broadcast', { event: 'game_over' }, ({ payload }: { payload: GameOverPayload }) => {
-      stopTimer();
-      if (revealRef.current) clearTimeout(revealRef.current);
+      clearReveal();
       const gs = gameStateRef.current;
       if (!gs) return;
       const won = payload.winnerName === gs.myName;
@@ -168,8 +150,7 @@ export default function App() {
     });
 
     chan.on('broadcast', { event: 'opponent_forfeited' }, () => {
-      stopTimer();
-      if (revealRef.current) clearTimeout(revealRef.current);
+      clearReveal();
       const gs = gameStateRef.current;
       if (!gs) return;
       setGameOverInfo({ won: true, myName: gs.myName, opponentName: gs.opponentName, myNewPoints: 0, pointsChange: 10 });
@@ -181,8 +162,7 @@ export default function App() {
 
     setGameState(initialState);
     setScreen('playing');
-    startTurnTimer();
-  }, [startTurnTimer, stopTimer]);
+  }, [clearReveal]);
 
   // ── Subscribe to player channel after login ────────────────────────────────────
   useEffect(() => {
@@ -195,7 +175,6 @@ export default function App() {
     const chan = supabase.channel(`player:${playerName}`);
 
     chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
-      // Unsubscribe from player channel, move to game channel
       chan.unsubscribe();
       playerChanRef.current = null;
 
@@ -264,7 +243,7 @@ export default function App() {
   }, [screen, subscribeToGame]);
 
   // Cleanup on unmount
-  useEffect(() => () => { stopTimer(); }, [stopTimer]);
+  useEffect(() => () => { clearReveal(); }, [clearReveal]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────────
   const handleAuth = (_token: string, name: string) => {
@@ -281,7 +260,7 @@ export default function App() {
     gameChanRef.current?.unsubscribe();
     playerChanRef.current = null;
     gameChanRef.current   = null;
-    stopTimer();
+    clearReveal();
     setAuthed(false);
     setScreen('home');
     setGameState(null);
@@ -293,9 +272,8 @@ export default function App() {
     const res = await apiFetch('/api/game/join-queue', {});
     if (!res.ok) { setScreen('home'); return; }
     const data = await res.json();
-    // If matched immediately (no one was in queue before us but server found someone atomically)
+    // Matched immediately: both players were in queue atomically
     if (data.status === 'matched' && data.game) {
-      // game_start will also arrive via Realtime; guard against double-init with gameState check
       if (!gameStateRef.current) {
         const gs: GameState = {
           gameId:         data.game.gameId,
@@ -319,34 +297,22 @@ export default function App() {
     setScreen('home');
   };
 
-  const handleMakeChoice = async (card: CardType, isTimeout = false) => {
+  const handleMakeChoice = async (card: CardType) => {
     const gs = gameStateRef.current;
     if (!gs || gs.phase !== 'choosing' || gs.myChoice) return;
     setGameState(prev => prev ? { ...prev, myChoice: card } : prev);
-    const res = await apiFetch('/api/game/make-choice', { card, gameId: gs.gameId, isTimeout });
+    const res = await apiFetch('/api/game/make-choice', { card, gameId: gs.gameId });
     if (!res.ok) {
       setGameState(prev => prev ? { ...prev, myChoice: null } : prev);
     }
   };
 
-  // Auto-submit random choice when timer hits 0 (with timeout energy penalty)
-  useEffect(() => {
-    if (turnTimeLeft !== 0 || screen !== 'playing') return;
-    const gs = gameStateRef.current;
-    if (!gs || gs.phase !== 'choosing' || gs.myChoice) return;
-    const cards: CardType[] = ['SHIELD', 'VEIL', 'MEDUSA'];
-    handleMakeChoice(cards[Math.floor(Math.random() * cards.length)], true);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [turnTimeLeft, screen]);
-
   const handleForfeit = async () => {
     const gs = gameStateRef.current;
     if (!gs) return;
-    stopTimer();
+    clearReveal();
     const res = await apiFetch('/api/game/forfeit', { gameId: gs.gameId });
     if (res.ok) {
-      // Immediately show defeat for the forfeiting player.
-      // The opponent receives game_over via Realtime broadcast.
       gameChanRef.current?.unsubscribe();
       gameChanRef.current = null;
       setGameOverInfo({
@@ -371,7 +337,7 @@ export default function App() {
       chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
         chan.unsubscribe();
         playerChanRef.current = null;
-        if (gameStateRef.current) return; // Already started — avoid double-init
+        if (gameStateRef.current) return;
         const gs: GameState = {
           gameId: payload.gameId, myName: payload.myName, opponentName: payload.opponentName,
           myEnergy: MAX_ENERGY, opponentEnergy: MAX_ENERGY,
@@ -428,8 +394,6 @@ export default function App() {
       {screen === 'playing' && gameState && (
         <GameScreen
           gameState={gameState}
-          turnTimeLeft={turnTimeLeft}
-          maxTurnTime={TURN_SECONDS}
           onMakeChoice={handleMakeChoice}
           onForfeit={handleForfeit}
         />

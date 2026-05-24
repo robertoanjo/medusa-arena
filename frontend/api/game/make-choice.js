@@ -10,30 +10,9 @@ module.exports = async function handler(req, res) {
   const player = await resolveToken(token);
   if (!player) return res.status(401).json({ error: 'Não autenticado.' });
 
-  const { card, gameId, isTimeout } = req.body || {};
+  const { card, gameId } = req.body || {};
   if (!CARDS.includes(card)) return res.status(400).json({ error: 'Carta inválida.' });
   if (!gameId)               return res.status(400).json({ error: 'gameId obrigatório.' });
-
-  // ── Timeout penalty: deduct 1 energy before recording the choice ─────────────
-  if (isTimeout) {
-    const { data: game } = await db
-      .from('games')
-      .select('player_a, player_b, energy_a, energy_b, ended')
-      .eq('id', gameId)
-      .maybeSingle();
-
-    if (game && !game.ended) {
-      const isPlayerA    = game.player_a === player.name;
-      const energyField  = isPlayerA ? 'energy_a' : 'energy_b';
-      const currentEnergy = isPlayerA ? game.energy_a : game.energy_b;
-
-      if (currentEnergy > 0) {
-        await db.from('games')
-          .update({ [energyField]: currentEnergy - 1 })
-          .eq('id', gameId);
-      }
-    }
-  }
 
   // ── Record the choice and resolve if both players have chosen ─────────────────
   const { data, error } = await db.rpc('fn_record_choice', {
@@ -48,17 +27,16 @@ module.exports = async function handler(req, res) {
   console.log('[make-choice] RPC result:', player.name, JSON.stringify(data));
 
   // First player to submit: choice recorded, waiting for opponent
-  if (!data.resolved) return res.json({ confirmed: true, card, isTimeout: !!isTimeout });
+  if (!data.resolved) return res.json({ confirmed: true, card });
 
-  // Second player to submit: resolve round, broadcast BEFORE responding
-  // (Vercel may kill the Lambda right after res.json(), so broadcast must come first)
+  // Second player to submit: broadcast BEFORE responding so Vercel doesn't
+  // kill the Lambda immediately after res.json() / res.end()
   const roundPayload = {
     choices:    { [data.player_a]: data.card_a, [data.player_b]: data.card_b },
     result:     data.result,
     winnerName: data.winner_name,
     loserName:  data.loser_name,
     energies:   { [data.player_a]: data.energy_a, [data.player_b]: data.energy_b },
-    timedOut:   isTimeout ? player.name : null,
   };
   const messages = [toGame(gameId, 'round_result', roundPayload)];
   console.log('[make-choice] broadcasting round_result to game:', gameId, 'game_over:', data.game_over);
@@ -80,5 +58,5 @@ module.exports = async function handler(req, res) {
 
   await broadcast(messages);
   console.log('[make-choice] broadcast done');
-  res.json({ confirmed: true, card, isTimeout: !!isTimeout });
+  res.json({ confirmed: true, card });
 };

@@ -1,13 +1,10 @@
 import React, { useState } from 'react';
 import type { CardType, GameState } from '../types';
 import EnergyBar from './EnergyBar';
-import TurnTimer from './TurnTimer';
 import CardReveal from './CardReveal';
 
 interface Props {
   gameState: GameState;
-  turnTimeLeft: number;
-  maxTurnTime: number;
   onMakeChoice: (card: CardType) => void;
   onForfeit: () => void;
 }
@@ -18,7 +15,7 @@ const CARDS: { type: CardType; emoji: string; labelTop: string; labelBot: string
   { type: 'MEDUSA', emoji: '🐍', labelTop: 'Cabeça',  labelBot: 'da Medusa', desc: 'Penetra o Véu' },
 ];
 
-export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMakeChoice, onForfeit }: Props) {
+export default function GameScreen({ gameState, onMakeChoice, onForfeit }: Props) {
   const [confirmForfeit, setConfirmForfeit] = useState(false);
   const {
     myName,
@@ -91,7 +88,6 @@ export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMak
 
       {/* ── Battle area ────────────────────────────── */}
       <div className="battle-area">
-        {/* Card reveals */}
         <div className="battle-cards">
           <CardReveal
             card={isRevealing ? opponentChoice : null}
@@ -103,11 +99,10 @@ export default function GameScreen({ gameState, turnTimeLeft, maxTurnTime, onMak
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
             <span className="battle-vs">VS</span>
-            {isChoosing && <TurnTimer timeLeft={turnTimeLeft} maxTime={maxTurnTime} />}
           </div>
 
           <CardReveal
-            card={myChoice ?? (isRevealing ? null : null)}
+            card={myChoice ?? null}
             flipped={isRevealing || (isChoosing && !!myChoice)}
             isWinner={iWon}
             isLoser={iLost}
