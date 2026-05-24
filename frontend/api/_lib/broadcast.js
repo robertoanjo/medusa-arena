@@ -11,7 +11,11 @@ async function broadcast(messages) {
     },
     body: JSON.stringify({ messages }),
   });
-  if (!res.ok) console.error('Broadcast failed:', res.status, await res.text().catch(() => ''));
+  if (!res.ok) {
+    console.error('[broadcast] FAILED:', res.status, await res.text().catch(() => ''));
+  } else {
+    console.log('[broadcast] OK:', res.status, 'topics:', messages.map(m => m.topic).join(', '));
+  }
 }
 
 const toPlayer = (name, event, payload) =>
