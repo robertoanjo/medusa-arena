@@ -30,6 +30,10 @@ module.exports = async function handler(req, res) {
         return res.status(403).json({ error: 'Acesso negado.' });
 
       const isA = game.player_a === player.name;
+      console.log('[status]', player.name, 'turn:', game.turn_number,
+        'ended:', game.ended, 'eA:', game.energy_a, 'eB:', game.energy_b,
+        'result:', game.result, 'winner:', game.winner_name);
+
       const body = {
         turnNumber:     game.turn_number,
         myChoice:       isA ? game.choice_a : game.choice_b,
