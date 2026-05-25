@@ -10,6 +10,9 @@ module.exports = async function handler(req, res) {
 
   // ── GET: two modes depending on whether ?gameId= is provided ─────────────────
   if (req.method === 'GET') {
+    // Prevent browser/CDN caching — game state changes every round
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+
     const { gameId } = req.query;
 
     // ── Mode A: round-result status polling (gameId provided) ──────────────────

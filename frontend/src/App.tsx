@@ -292,7 +292,7 @@ export default function App() {
       if (handled) return;
       try {
         const res = await fetch(
-          `/api/game/join-queue?gameId=${encodeURIComponent(gs.gameId)}`,
+          `/api/game/join-queue?gameId=${encodeURIComponent(gs.gameId)}&_t=${Date.now()}`,
           { headers: authHeaders() },
         );
         if (!res.ok) return;
