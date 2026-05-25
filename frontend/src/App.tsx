@@ -300,7 +300,9 @@ export default function App() {
 
         if (gs.myChoice) {
           // ── Submitted: waiting for opponent ────────────────────────────────
-          if (d.turnNumber <= gs.turnNumber) return; // not resolved yet
+          // On the last turn turn_number doesn't advance (game is over), so also
+          // pass through when ended=true even if the turn counter hasn't moved.
+          if (d.turnNumber <= gs.turnNumber && !d.ended) return; // not resolved yet
 
           if (gameStateRef.current?.phase !== 'choosing') {
             handled = true; // Realtime already handled it — stop polling
