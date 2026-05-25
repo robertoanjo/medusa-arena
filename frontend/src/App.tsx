@@ -51,7 +51,18 @@ export default function App() {
   const playerChanRef  = useRef<RealtimeChannel | null>(null);
   const gameChanRef    = useRef<RealtimeChannel | null>(null);
   const gameStateRef   = useRef<GameState | null>(null);
+  const isWaitingRef   = useRef(false);   // true only after clicking "Entrar na arena"
   gameStateRef.current = gameState;
+
+  // ── Clear stale queue entry on app mount ─────────────────────────────────────
+  // Prevents ghost-match when player refreshed while in queue (isWaitingRef=false
+  // on cold load, so even if match happens before DELETE completes, the game_start
+  // handler will ignore it).
+  useEffect(() => {
+    if (!authed || !playerName) return;
+    fetch('/api/game/join-queue', { method: 'DELETE', headers: authHeaders() }).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Password reset via URL param ─────────────────────────────────────────────
   useEffect(() => {
@@ -160,6 +171,7 @@ export default function App() {
     chan.subscribe();
     gameChanRef.current = chan;
 
+    isWaitingRef.current = false;
     setGameState(initialState);
     setScreen('playing');
   }, [clearReveal]);
@@ -175,6 +187,9 @@ export default function App() {
     const chan = supabase.channel(`player:${playerName}`);
 
     chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
+      // Only accept if this player explicitly clicked "Entrar na arena"
+      if (!isWaitingRef.current) return;
+
       chan.unsubscribe();
       playerChanRef.current = null;
 
@@ -277,6 +292,7 @@ export default function App() {
   };
 
   const handleJoin = async () => {
+    isWaitingRef.current = true;
     setScreen('waiting');
     const res = await apiFetch('/api/game/join-queue', {});
     if (!res.ok) { setScreen('home'); return; }
@@ -302,6 +318,7 @@ export default function App() {
   };
 
   const handleCancelQueue = async () => {
+    isWaitingRef.current = false;
     await fetch('/api/game/join-queue', { method: 'DELETE', headers: authHeaders() });
     setScreen('home');
   };
@@ -344,6 +361,7 @@ export default function App() {
     if (playerName) {
       const chan = supabase.channel(`player:${playerName}`);
       chan.on('broadcast', { event: 'game_start' }, ({ payload }: { payload: GameStartPayload }) => {
+        if (!isWaitingRef.current) return;
         chan.unsubscribe();
         playerChanRef.current = null;
         if (gameStateRef.current) return;
