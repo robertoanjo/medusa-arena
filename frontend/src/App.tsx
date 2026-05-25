@@ -118,6 +118,10 @@ export default function App() {
     const chan = supabase.channel(`game:${gameId}`);
 
     chan.on('broadcast', { event: 'round_result' }, ({ payload }: { payload: RoundResultPayload }) => {
+      // If polling already handled this round (phase is 'revealing'), don't interfere —
+      // overriding the game-over timeout with a "reset to choosing" would break the last turn.
+      if (gameStateRef.current?.phase === 'revealing') return;
+
       clearReveal();
 
       setGameState(prev => {
@@ -266,13 +270,21 @@ export default function App() {
     };
   }, [screen, subscribeToGame]);
 
-  // ── Polling fallback for round result ────────────────────────────────────────
-  // Runs while the player has already chosen but the opponent hasn't yet.
-  // When the server's turn_number advances, both choices are in and we reveal.
+  // ── Polling fallback for round result & missed game-over ─────────────────────
+  // Runs during the entire 'choosing' phase (both before and after submitting).
+  //
+  // When myChoice is set (waiting for opponent):
+  //   → detects when server turn_number advances → reveals cards → next turn or game over
+  //
+  // When myChoice is null (player hasn't chosen yet):
+  //   → only checks if game ended (catches missed game_over broadcast after the
+  //     spurious "reset to choosing" that happens when round_result fires but
+  //     game_over doesn't)
+  //
   // Primary delivery path — Realtime broadcast is a secondary (faster) path.
   useEffect(() => {
     const gs = gameState;
-    if (!gs || gs.phase !== 'choosing' || !gs.myChoice) return;
+    if (!gs || gs.phase !== 'choosing') return;
 
     let handled = false; // prevent re-processing if interval fires again before cleanup
 
@@ -286,56 +298,80 @@ export default function App() {
         if (!res.ok) return;
         const d = await res.json();
 
-        // Round not resolved yet (or already handled by Realtime broadcast)
-        if (d.turnNumber <= gs.turnNumber) return;
-        if (gameStateRef.current?.phase !== 'choosing') {
-          handled = true; // Realtime already handled it — stop polling
-          return;
-        }
+        if (gs.myChoice) {
+          // ── Submitted: waiting for opponent ────────────────────────────────
+          if (d.turnNumber <= gs.turnNumber) return; // not resolved yet
 
-        handled = true;
-        clearReveal();
+          if (gameStateRef.current?.phase !== 'choosing') {
+            handled = true; // Realtime already handled it — stop polling
+            return;
+          }
 
-        setGameState(prev => {
-          if (!prev || prev.phase !== 'choosing') return prev;
-          return {
-            ...prev,
-            phase:          'revealing',
-            myChoice:       (d.myChoice       as CardType) ?? prev.myChoice,
-            opponentChoice: (d.opponentChoice as CardType) ?? null,
-            myEnergy:       d.myEnergy,
-            opponentEnergy: d.opponentEnergy,
-            lastWinnerName: d.winnerName,
-            lastLoserName:  d.loserName,
-            isTie:          d.winnerName === null,
-          };
-        });
+          handled = true;
+          clearReveal();
 
-        if (d.ended) {
-          // Reveal then go to game over
+          setGameState(prev => {
+            if (!prev || prev.phase !== 'choosing') return prev;
+            return {
+              ...prev,
+              phase:          'revealing',
+              myChoice:       (d.myChoice       as CardType) ?? prev.myChoice,
+              opponentChoice: (d.opponentChoice as CardType) ?? null,
+              myEnergy:       d.myEnergy,
+              opponentEnergy: d.opponentEnergy,
+              lastWinnerName: d.winnerName,
+              lastLoserName:  d.loserName,
+              isTie:          d.winnerName === null,
+            };
+          });
+
+          if (d.ended) {
+            // Reveal then game over
+            const gs2 = gameStateRef.current;
+            if (!gs2) return;
+            const won = d.winnerName === gs2.myName;
+            revealRef.current = setTimeout(() => {
+              setGameOverInfo({
+                won,
+                myName:       gs2.myName,
+                opponentName: gs2.opponentName,
+                myNewPoints:  d.myNewPoints ?? 0,
+                pointsChange: won ? 10 : -5,
+              });
+              setTimeout(() => setScreen('gameover'), 300);
+            }, 2500);
+          } else {
+            // Reveal then reset for next turn
+            revealRef.current = setTimeout(() => {
+              setGameState(prev => prev ? {
+                ...prev,
+                phase: 'choosing', myChoice: null, opponentChoice: null,
+                turnNumber: prev.turnNumber + 1,
+                lastWinnerName: null, lastLoserName: null, isTie: false,
+              } : prev);
+            }, 2500);
+          }
+        } else {
+          // ── Not submitted yet: only check for missed game-over ─────────────
+          // This catches the case where Realtime round_result fired for the last
+          // turn but game_over didn't — the "reset to choosing" timeout left the
+          // client in 'choosing' with myChoice=null while the game is actually over.
+          if (!d.ended) return;
+          if (gameStateRef.current?.phase !== 'choosing') { handled = true; return; }
+
+          handled = true;
+          clearReveal();
           const gs2 = gameStateRef.current;
           if (!gs2) return;
           const won = d.winnerName === gs2.myName;
-          revealRef.current = setTimeout(() => {
-            setGameOverInfo({
-              won,
-              myName:       gs2.myName,
-              opponentName: gs2.opponentName,
-              myNewPoints:  d.myNewPoints ?? 0,
-              pointsChange: won ? 10 : -5,
-            });
-            setTimeout(() => setScreen('gameover'), 300);
-          }, 2500);
-        } else {
-          // Reveal then reset for next turn
-          revealRef.current = setTimeout(() => {
-            setGameState(prev => prev ? {
-              ...prev,
-              phase: 'choosing', myChoice: null, opponentChoice: null,
-              turnNumber: prev.turnNumber + 1,
-              lastWinnerName: null, lastLoserName: null, isTie: false,
-            } : prev);
-          }, 2500);
+          setGameOverInfo({
+            won,
+            myName:       gs2.myName,
+            opponentName: gs2.opponentName,
+            myNewPoints:  d.myNewPoints ?? 0,
+            pointsChange: won ? 10 : -5,
+          });
+          setScreen('gameover');
         }
       } catch { /* ignore */ }
     };
