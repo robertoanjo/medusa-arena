@@ -100,6 +100,9 @@ module.exports = async function handler(req, res) {
   const { data, error } = await db.rpc('fn_join_queue', { p_name: player.name });
   if (error) { console.error(error); return res.status(500).json({ error: 'Erro interno.' }); }
 
+  console.log('[join-queue]', player.name, '→ status:', data?.status,
+    data?.status === 'matched' ? `(vs ${data.opponent_name}, game ${data.game_id})` : '');
+
   if (data.status === 'queued') return res.json({ status: 'queued' });
 
   const { game_id: gameId, my_name: myName, opponent_name: oppName } = data;
