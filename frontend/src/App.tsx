@@ -266,6 +266,85 @@ export default function App() {
     };
   }, [screen, subscribeToGame]);
 
+  // ── Polling fallback for round result ────────────────────────────────────────
+  // Runs while the player has already chosen but the opponent hasn't yet.
+  // When the server's turn_number advances, both choices are in and we reveal.
+  // Primary delivery path — Realtime broadcast is a secondary (faster) path.
+  useEffect(() => {
+    const gs = gameState;
+    if (!gs || gs.phase !== 'choosing' || !gs.myChoice) return;
+
+    let handled = false; // prevent re-processing if interval fires again before cleanup
+
+    const poll = async () => {
+      if (handled) return;
+      try {
+        const res = await fetch(
+          `/api/game/status?gameId=${encodeURIComponent(gs.gameId)}`,
+          { headers: authHeaders() },
+        );
+        if (!res.ok) return;
+        const d = await res.json();
+
+        // Round not resolved yet (or already handled by Realtime broadcast)
+        if (d.turnNumber <= gs.turnNumber) return;
+        if (gameStateRef.current?.phase !== 'choosing') {
+          handled = true; // Realtime already handled it — stop polling
+          return;
+        }
+
+        handled = true;
+        clearReveal();
+
+        setGameState(prev => {
+          if (!prev || prev.phase !== 'choosing') return prev;
+          return {
+            ...prev,
+            phase:          'revealing',
+            myChoice:       (d.myChoice       as CardType) ?? prev.myChoice,
+            opponentChoice: (d.opponentChoice as CardType) ?? null,
+            myEnergy:       d.myEnergy,
+            opponentEnergy: d.opponentEnergy,
+            lastWinnerName: d.winnerName,
+            lastLoserName:  d.loserName,
+            isTie:          d.winnerName === null,
+          };
+        });
+
+        if (d.ended) {
+          // Reveal then go to game over
+          const gs2 = gameStateRef.current;
+          if (!gs2) return;
+          const won = d.winnerName === gs2.myName;
+          revealRef.current = setTimeout(() => {
+            setGameOverInfo({
+              won,
+              myName:       gs2.myName,
+              opponentName: gs2.opponentName,
+              myNewPoints:  d.myNewPoints ?? 0,
+              pointsChange: won ? 10 : -5,
+            });
+            setTimeout(() => setScreen('gameover'), 300);
+          }, 2500);
+        } else {
+          // Reveal then reset for next turn
+          revealRef.current = setTimeout(() => {
+            setGameState(prev => prev ? {
+              ...prev,
+              phase: 'choosing', myChoice: null, opponentChoice: null,
+              turnNumber: prev.turnNumber + 1,
+              lastWinnerName: null, lastLoserName: null, isTie: false,
+            } : prev);
+          }, 2500);
+        }
+      } catch { /* ignore */ }
+    };
+
+    const id = setInterval(poll, 1500);
+    return () => clearInterval(id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [gameState?.phase, gameState?.myChoice, gameState?.gameId, gameState?.turnNumber]);
+
   // Cleanup on unmount
   useEffect(() => () => { clearReveal(); }, [clearReveal]);
 
