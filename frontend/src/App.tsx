@@ -280,7 +280,7 @@ export default function App() {
       if (handled) return;
       try {
         const res = await fetch(
-          `/api/game/status?gameId=${encodeURIComponent(gs.gameId)}`,
+          `/api/game/join-queue?gameId=${encodeURIComponent(gs.gameId)}`,
           { headers: authHeaders() },
         );
         if (!res.ok) return;
