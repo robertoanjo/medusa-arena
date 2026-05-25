@@ -34,6 +34,7 @@ module.exports = async function handler(req, res) {
         turnNumber:    game.turn_number,
       });
     }
+
     return res.json({ status: 'waiting' });
   }
 

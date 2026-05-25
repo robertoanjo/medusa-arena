@@ -239,7 +239,16 @@ export default function App() {
       } catch { /* ignore */ }
     };
     const id = setInterval(poll, 4000);
-    return () => clearInterval(id);
+
+    // When leaving the waiting screen WITHOUT finding a game, remove from queue.
+    // This covers page navigation away from 'waiting' (e.g. browser back).
+    // If a game was found, gameStateRef.current is already set, so we skip.
+    return () => {
+      clearInterval(id);
+      if (!gameStateRef.current) {
+        fetch('/api/game/join-queue', { method: 'DELETE', headers: authHeaders() }).catch(() => {});
+      }
+    };
   }, [screen, subscribeToGame]);
 
   // Cleanup on unmount
