@@ -22,6 +22,7 @@ interface GameOverInfo {
   opponentName: string;
   myNewPoints:  number;
   pointsChange: number;
+  forfeit?:     boolean; // opponent abandoned the game
 }
 
 function authHeaders(): HeadersInit {
@@ -160,6 +161,7 @@ export default function App() {
         opponentName:  won ? payload.loserName : payload.winnerName,
         myNewPoints:   payload.stats[gs.myName]?.points ?? 0,
         pointsChange:  won ? 10 : -5,
+        forfeit:       payload.forfeit ?? false,
       });
       setTimeout(() => setScreen('gameover'), 300);
     });
@@ -168,7 +170,7 @@ export default function App() {
       clearReveal();
       const gs = gameStateRef.current;
       if (!gs) return;
-      setGameOverInfo({ won: true, myName: gs.myName, opponentName: gs.opponentName, myNewPoints: 0, pointsChange: 10 });
+      setGameOverInfo({ won: true, myName: gs.myName, opponentName: gs.opponentName, myNewPoints: 0, pointsChange: 10, forfeit: true });
       setTimeout(() => setScreen('gameover'), 300);
     });
 

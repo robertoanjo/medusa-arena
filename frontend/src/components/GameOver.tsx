@@ -6,6 +6,7 @@ interface Info {
   opponentName: string;
   myNewPoints: number;
   pointsChange: number;
+  forfeit?: boolean;
 }
 
 interface Props {
@@ -14,7 +15,7 @@ interface Props {
 }
 
 export default function GameOver({ info, onPlayAgain }: Props) {
-  const { won, myName, opponentName, myNewPoints, pointsChange } = info;
+  const { won, myName, opponentName, myNewPoints, pointsChange, forfeit } = info;
   const [show, setShow] = useState(false);
 
   useEffect(() => {
@@ -24,19 +25,25 @@ export default function GameOver({ info, onPlayAgain }: Props) {
 
   if (!show) return null;
 
+  const subtitle = won
+    ? forfeit
+      ? `${opponentName} abandonou a batalha e foi petrificado!`
+      : `${opponentName} foi petrificado pelo seu poder.`
+    : forfeit
+      ? `Você abandonou a batalha e foi petrificado.`
+      : `${opponentName} te transformou em pedra.`;
+
   return (
     <div className="gameover">
       <span className="gameover-icon">{won ? '🏆' : '🗿'}</span>
 
       <h1 className={`gameover-title ${won ? 'won' : 'lost'}`}>
-        {won ? 'Vitória!' : 'Petrificado!'}
+        {won
+          ? forfeit ? `Vitória! ${opponentName} abandonou.` : 'Vitória!'
+          : 'Petrificado!'}
       </h1>
 
-      <p className="gameover-sub">
-        {won
-          ? `${opponentName} foi petrificado pelo seu poder.`
-          : `${opponentName} te transformou em pedra.`}
-      </p>
+      <p className="gameover-sub">{subtitle}</p>
 
       <div className="gameover-points">
         <span className="gameover-points-label">Seus pontos</span>
