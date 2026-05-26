@@ -68,5 +68,29 @@ module.exports = async function handler(req, res) {
     return res.json({ ok: true, emailChanged });
   }
 
+  if (req.method === 'DELETE') {
+    // ── Account deletion (LGPD Art. 18 — direito ao esquecimento) ─────────────
+    const name = player.name;
+    try {
+      // Delete in FK-safe order
+      await db.from('sessions').delete().eq('player_name', name);
+      await db.from('queue').delete().eq('player_name', name);
+
+      // password_resets may not exist on older installs — ignore errors
+      await db.from('password_resets').delete().eq('player_name', name).then(() => {}).catch(() => {});
+
+      // Remove game records that reference this player
+      await db.from('games').delete().or(`player_a.eq.${name},player_b.eq.${name}`);
+
+      // Finally delete the player row
+      await db.from('players').delete().eq('name', name);
+
+      return res.json({ ok: true });
+    } catch (err) {
+      console.error('[delete-account] error:', err?.message);
+      return res.status(500).json({ error: 'Erro ao excluir conta. Tente novamente.' });
+    }
+  }
+
   res.status(405).end();
 };
