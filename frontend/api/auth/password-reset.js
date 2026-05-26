@@ -1,5 +1,6 @@
 const { db }                     = require('../_lib/supabase-admin');
 const { sendPasswordResetEmail } = require('../_lib/mailer');
+const { rateLimit }              = require('../_lib/ratelimit');
 const bcrypt                     = require('bcryptjs');
 const crypto                     = require('crypto');
 
@@ -7,6 +8,8 @@ module.exports = async function handler(req, res) {
 
   // ── POST { email } → solicitar reset ─────────────────────────────────────────
   if (req.method === 'POST') {
+    if (!(await rateLimit(req, res, 'email'))) return;
+
     const { email } = req.body || {};
     if (!email) return res.status(400).json({ error: 'E-mail obrigatório.' });
 

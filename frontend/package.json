@@ -1,7 +1,7 @@
 {
   "name": "medusa-arena-frontend",
   "version": "1.0.0",
-  "description": "Medusa Arena — Interface + API Routes",
+  "description": "Gaze of Medusa — Interface + API Routes",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -9,7 +9,10 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.43.4",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.38.0",
     "bcryptjs": "^2.4.3",
+    "nodemailer": "^6.10.1",
     "pg": "^8.11.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

@@ -1,10 +1,12 @@
 const { db }                    = require('../_lib/supabase-admin');
 const { sendVerificationEmail } = require('../_lib/mailer');
+const { rateLimit }             = require('../_lib/ratelimit');
 const bcrypt                    = require('bcryptjs');
 const crypto                    = require('crypto');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+  if (!(await rateLimit(req, res, 'register'))) return;
 
   const { name, email, realName, password } = req.body || {};
 

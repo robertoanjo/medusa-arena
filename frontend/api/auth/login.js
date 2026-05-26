@@ -1,9 +1,11 @@
-const { db }  = require('../_lib/supabase-admin');
-const bcrypt  = require('bcryptjs');
-const crypto  = require('crypto');
+const { db }        = require('../_lib/supabase-admin');
+const { rateLimit } = require('../_lib/ratelimit');
+const bcrypt        = require('bcryptjs');
+const crypto        = require('crypto');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
+  if (!(await rateLimit(req, res, 'login'))) return;
 
   const { name, password } = req.body || {};
   if (!name || !password)
