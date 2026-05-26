@@ -1,6 +1,6 @@
-const { q }  = require('../_lib/db');
-const bcrypt = require('bcryptjs');
-const crypto = require('crypto');
+const { db }  = require('../_lib/supabase-admin');
+const bcrypt  = require('bcryptjs');
+const crypto  = require('crypto');
 
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
@@ -10,19 +10,19 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ error: 'Nome e senha são obrigatórios.' });
 
   try {
-    const [player] = await q(
-      'SELECT name, password_hash, wins, losses, points FROM medusa.players WHERE name = $1',
-      [name.trim()],
-    );
-    if (!player)
-      return res.status(401).json({ error: 'Usuário não encontrado.' });
+    const { data: player } = await db
+      .from('players')
+      .select('name, password_hash, wins, losses, points')
+      .eq('name', name.trim())
+      .single();
+
+    if (!player) return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
 
     const ok = await bcrypt.compare(password, player.password_hash);
-    if (!ok)
-      return res.status(401).json({ error: 'Senha incorreta.' });
+    if (!ok) return res.status(401).json({ error: 'Usuário ou senha inválidos.' });
 
     const token = crypto.randomBytes(32).toString('hex');
-    await q('INSERT INTO medusa.sessions(token, player_name) VALUES($1, $2)', [token, player.name]);
+    await db.from('sessions').insert({ token, player_name: player.name });
 
     const { password_hash: _, ...safePlayer } = player;
     res.json({ token, player: safePlayer });
