@@ -334,6 +334,7 @@ export default function App() {
             const gs2 = gameStateRef.current;
             if (!gs2) return;
             const won = d.winnerName === gs2.myName;
+            console.log('[poll] game ended (submitted path) result:', d.result, 'won:', won, 'forfeit:', d.result === 'forfeit');
             revealRef.current = setTimeout(() => {
               setGameOverInfo({
                 won,
@@ -369,6 +370,7 @@ export default function App() {
           const gs2 = gameStateRef.current;
           if (!gs2) return;
           const won = d.winnerName === gs2.myName;
+          console.log('[poll] game ended (not-submitted path) result:', d.result, 'won:', won, 'forfeit:', d.result === 'forfeit');
           setGameOverInfo({
             won,
             myName:       gs2.myName,

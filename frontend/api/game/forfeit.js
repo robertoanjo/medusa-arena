@@ -20,8 +20,11 @@ module.exports = async function handler(req, res) {
   if (error) { console.error(error); return res.status(500).json({ error: 'Erro interno.' }); }
   if (!data) return res.json({ ok: true });
 
-  // Mark game ended so the polling fallback never re-subscribes to a stale channel
-  await db.from('games').update({ ended: true }).eq('id', gameId);
+  // Mark game ended + forfeit so the polling fallback can distinguish forfeit from normal win
+  const { error: updErr } = await db.from('games')
+    .update({ ended: true, result: 'forfeit' })
+    .eq('id', gameId);
+  if (updErr) console.error('[forfeit] games update error:', updErr.message);
 
   await broadcast([
     toGame(gameId, 'game_over', {
