@@ -341,6 +341,7 @@ export default function App() {
                 opponentName: gs2.opponentName,
                 myNewPoints:  d.myNewPoints ?? 0,
                 pointsChange: won ? 10 : -5,
+                forfeit:      d.result === 'forfeit',
               });
               setTimeout(() => setScreen('gameover'), 300);
             }, 2500);
@@ -374,6 +375,7 @@ export default function App() {
             opponentName: gs2.opponentName,
             myNewPoints:  d.myNewPoints ?? 0,
             pointsChange: won ? 10 : -5,
+            forfeit:      d.result === 'forfeit',
           });
           setScreen('gameover');
         }
