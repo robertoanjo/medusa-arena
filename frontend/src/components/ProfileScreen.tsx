@@ -179,14 +179,19 @@ export default function ProfileScreen({ token, onBack, onLogout }: Props) {
 
           {/* Stats row */}
           <div style={{ display: 'flex', gap: 8 }}>
-            {([['⚡', 'Pontos', profile.points], ['🏆', 'Vitórias', profile.wins], ['💀', 'Derrotas', profile.losses]] as const).map(([icon, label, val]) => (
+            {([
+              ['⚡', 'Pontos',       profile.points],
+              ['🏆', 'Vitórias',     profile.wins],
+              ['💀', 'Derrotas',     profile.losses],
+              ['🏅', 'Classificação', profile.rank != null ? `#${profile.rank}` : '—'],
+            ] as const).map(([icon, label, val]) => (
               <div key={String(label)} style={{
                 textAlign: 'center', background: '#2a0a3e',
-                padding: '10px 6px', borderRadius: 8, flex: 1, minWidth: 0,
+                padding: '10px 4px', borderRadius: 8, flex: 1, minWidth: 0,
               }}>
-                <div style={{ fontSize: 18 }}>{icon}</div>
-                <div style={{ color: '#d4af37', fontWeight: 700, fontSize: 17 }}>{String(val)}</div>
-                <div style={{ color: '#8060a0', fontSize: 10 }}>{label}</div>
+                <div style={{ fontSize: 16 }}>{icon}</div>
+                <div style={{ color: '#d4af37', fontWeight: 700, fontSize: 15 }}>{String(val)}</div>
+                <div style={{ color: '#8060a0', fontSize: 9, lineHeight: 1.2 }}>{label}</div>
               </div>
             ))}
           </div>
@@ -322,7 +327,7 @@ export default function ProfileScreen({ token, onBack, onLogout }: Props) {
               style={{ fontSize: 13, textAlign: 'left' }}
               onClick={() => setShowPrivacy(true)}
             >
-              📄 Ver Política de Privacidade (LGPD)
+              <span className="mat-icon">docs</span> Ver Política de Privacidade (LGPD)
             </button>
 
             {/* Danger zone */}
@@ -337,7 +342,7 @@ export default function ProfileScreen({ token, onBack, onLogout }: Props) {
                   width: '100%',
                 }}
               >
-                🗑️ Excluir minha conta e dados
+                <span className="mat-icon">delete</span> Excluir minha conta e dados
               </button>
             ) : (
               <div style={{
@@ -391,7 +396,7 @@ export default function ProfileScreen({ token, onBack, onLogout }: Props) {
                       fontWeight: 700, fontSize: 13, transition: 'all .2s',
                     }}
                   >
-                    {deleting ? '⌛ Excluindo…' : '🗑️ Excluir tudo'}
+                    {deleting ? '⌛ Excluindo…' : <><span className="mat-icon">delete</span>Excluir tudo</>}
                   </button>
                 </div>
               </div>

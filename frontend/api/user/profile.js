@@ -14,7 +14,14 @@ module.exports = async function handler(req, res) {
       .select('name, real_name, email, email_verified, wins, losses, points')
       .eq('name', player.name)
       .single();
-    return res.json(data || {});
+
+    // Ranking position: count players with strictly more points (ties share the same rank)
+    const { count } = await db
+      .from('players')
+      .select('*', { count: 'exact', head: true })
+      .gt('points', (data?.points ?? 0));
+
+    return res.json({ ...(data || {}), rank: (count ?? 0) + 1 });
   }
 
   if (req.method === 'PUT') {

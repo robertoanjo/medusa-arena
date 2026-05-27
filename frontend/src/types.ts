@@ -1,5 +1,5 @@
 export type CardType  = 'SHIELD' | 'VEIL' | 'MEDUSA';
-export type Screen    = 'home' | 'waiting' | 'playing' | 'gameover';
+export type Screen    = 'home' | 'waiting' | 'playing' | 'gameover' | 'profile' | 'verify-email';
 export type GamePhase = 'choosing' | 'revealing';
 
 export interface PlayerStats {
@@ -9,11 +9,18 @@ export interface PlayerStats {
   points: number;
 }
 
+export interface PlayerProfile extends PlayerStats {
+  email:          string;
+  real_name:      string | null;
+  email_verified: boolean;
+  rank?:          number;
+}
+
 export interface GameStartPayload {
-  gameId:       string;
-  myName:       string;
-  opponentName: string;
-  myEnergy:     number;
+  gameId:        string;
+  myName:        string;
+  opponentName:  string;
+  myEnergy:      number;
   opponentEnergy: number;
 }
 
