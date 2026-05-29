@@ -139,7 +139,7 @@ export default function ProfileScreen({ token, onBack, onLogout }: Props) {
   const resendVerification = async () => {
     setResending(true);
     try {
-      await fetch('/api/auth/resend-verification', { method: 'POST', headers: authH(token) });
+      await fetch('/api/auth/verify-email', { method: 'POST', headers: authH(token) });
       setResentOk(true);
     } catch { /* ignore */ }
     finally { setResending(false); }

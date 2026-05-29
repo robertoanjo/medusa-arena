@@ -1,15 +1,16 @@
-const { q } = require('./db');
+const { db } = require('./supabase-admin');
 
 async function resolveToken(token) {
   if (!token) return null;
-  const rows = await q(
-    `SELECT p.name, p.wins, p.losses, p.points
-     FROM medusa.sessions s
-     JOIN medusa.players p ON p.name = s.player_name
-     WHERE s.token = $1`,
-    [token],
-  );
-  return rows[0] || null;
+  const { data: session } = await db.from('sessions').select('player_name').eq('token', token).single();
+  if (!session) return null;
+  const { data: player } = await db
+    .from('players')
+    .select('name, real_name, email, email_verified, wins, losses, points')
+    .eq('name', session.player_name)
+    .single();
+  if (!player) return null;
+  return { token, ...player };
 }
 
 module.exports = { resolveToken };

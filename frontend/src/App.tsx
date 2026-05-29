@@ -5,6 +5,7 @@ import type {
   CardType, Screen, GameState, GamePhase, PlayerStats,
   GameStartPayload, RoundResultPayload, GameOverPayload,
 } from './types';
+import AdminDashboard   from './components/AdminDashboard';
 import AuthScreen        from './components/AuthScreen';
 import HomeScreen        from './components/HomeScreen';
 import WaitingScreen     from './components/WaitingScreen';
@@ -13,6 +14,7 @@ import GameOver          from './components/GameOver';
 import ProfileScreen       from './components/ProfileScreen';
 import VerifyEmailScreen   from './components/VerifyEmailScreen';
 import ResetPasswordScreen from './components/ResetPasswordScreen';
+import { audio } from './lib/audio';
 
 const MAX_ENERGY = 12;
 
@@ -42,6 +44,16 @@ export default function App() {
     return p.get('reset');
   });
 
+  // ── Audio ─────────────────────────────────────────────────────────────────────
+  const [muted, setMuted] = useState(false);
+  const toggleMute = () => {
+    setMuted(prev => {
+      const next = !prev;
+      if (next) audio.mute(); else audio.unmute();
+      return next;
+    });
+  };
+
   // ── Game state ────────────────────────────────────────────────────────────────
   const [screen,       setScreen]       = useState<Screen>('home');
   const [gameState,    setGameState]    = useState<GameState | null>(null);
@@ -54,6 +66,11 @@ export default function App() {
   const gameStateRef   = useRef<GameState | null>(null);
   const isWaitingRef   = useRef(false);   // true only after clicking "Entrar na arena"
   gameStateRef.current = gameState;
+
+  // ── Stop battle music when game ends (cobre broadcast, polling e forfeit) ────
+  useEffect(() => {
+    if (screen === 'gameover') audio.stopBattle();
+  }, [screen]);
 
   // ── Clear stale queue entry on app mount ─────────────────────────────────────
   // Prevents ghost-match when player refreshed while in queue (isWaitingRef=false
@@ -125,6 +142,9 @@ export default function App() {
 
       clearReveal();
 
+      // Play hit sound on non-tie rounds
+      if (payload.winnerName !== null) audio.playHit();
+
       setGameState(prev => {
         if (!prev) return prev;
         return {
@@ -178,6 +198,8 @@ export default function App() {
     gameChanRef.current = chan;
 
     isWaitingRef.current = false;
+    audio.stopTheme();
+    audio.startBattle();
     setGameState(initialState);
     setScreen('playing');
   }, [clearReveal]);
@@ -314,6 +336,8 @@ export default function App() {
           handled = true;
           clearReveal();
 
+          if (d.winnerName !== null) audio.playHit();
+
           setGameState(prev => {
             if (!prev || prev.phase !== 'choosing') return prev;
             return {
@@ -416,6 +440,7 @@ export default function App() {
 
   const handleJoin = async () => {
     isWaitingRef.current = true;
+    audio.startTheme();
     setScreen('waiting');
     const res = await apiFetch('/api/game/join-queue', {});
     if (!res.ok) { setScreen('home'); return; }
@@ -507,6 +532,8 @@ export default function App() {
   };
 
   // ── Render ────────────────────────────────────────────────────────────────────
+  if (window.location.pathname === '/admin') return <AdminDashboard />;
+
   if (resetToken) return (
     <ResetPasswordScreen
       token={resetToken}
@@ -526,6 +553,16 @@ export default function App() {
 
   return (
     <div className="app">
+      {/* Mute button — visível em todas as telas autenticadas */}
+      <button
+        className="btn-mute"
+        onClick={toggleMute}
+        title={muted ? 'Ativar som' : 'Silenciar'}
+        aria-label={muted ? 'Ativar som' : 'Silenciar'}
+      >
+        {muted ? '🔇' : '🔊'}
+      </button>
+
       {screen === 'home' && (
         <HomeScreen
           playerName={playerName}

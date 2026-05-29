@@ -12,6 +12,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "bcryptjs": "^2.4.3",
+    "howler": "^2.2.4",
     "nodemailer": "^6.10.1",
     "pg": "^8.11.5",
     "react": "^18.2.0",
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
+    "@types/howler": "^2.2.13",
     "@types/pg": "^8.11.5",
     "@types/react": "^18.2.55",
     "@types/react-dom": "^18.2.19",

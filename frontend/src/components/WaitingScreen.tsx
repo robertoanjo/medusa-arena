@@ -1,5 +1,4 @@
 import React from 'react';
-import MedusaHead from './MedusaHead';
 
 interface Props {
   playerName: string;
@@ -12,7 +11,9 @@ export default function WaitingScreen({ playerName, onCancel }: Props) {
       <div className="waiting-orb">
         <div className="orb-ring orb-ring-1" />
         <div className="orb-ring orb-ring-2" />
-        <div className="orb-snake"><MedusaHead size={44} /></div>
+        <div className="orb-snake">
+          <img src="/images/card-medusa.png" alt="Medusa" className="waiting-medusa-img" />
+        </div>
       </div>
 
       <div>

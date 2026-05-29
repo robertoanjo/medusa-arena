@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { CardType, GameState } from '../types';
 import EnergyBar from './EnergyBar';
 import CardReveal from './CardReveal';
+import { audio } from '../lib/audio';
 
 interface Props {
   gameState: GameState;
@@ -9,10 +10,10 @@ interface Props {
   onForfeit: () => void;
 }
 
-const CARDS: { type: CardType; emoji: string; labelTop: string; labelBot: string; desc: string }[] = [
-  { type: 'SHIELD', emoji: '🛡️', labelTop: 'Escudo',  labelBot: 'Espelhado', desc: 'Reflete a Medusa' },
-  { type: 'VEIL',   emoji: '🌫️', labelTop: 'Véu',    labelBot: 'Místico',   desc: 'Encobre o Escudo' },
-  { type: 'MEDUSA', emoji: '🐍', labelTop: 'Cabeça',  labelBot: 'da Medusa', desc: 'Penetra o Véu' },
+const CARDS: { type: CardType; img: string; labelTop: string; labelBot: string; desc: string }[] = [
+  { type: 'SHIELD', img: '/images/card-shield.png', labelTop: 'Escudo',  labelBot: 'Espelhado', desc: 'Reflete a Medusa' },
+  { type: 'VEIL',   img: '/images/card-veil.png',   labelTop: 'Véu',     labelBot: 'Místico',   desc: 'Encobre o Escudo' },
+  { type: 'MEDUSA', img: '/images/card-medusa.png', labelTop: 'Cabeça',  labelBot: 'da Medusa', desc: 'Penetra o Véu' },
 ];
 
 export default function GameScreen({ gameState, onMakeChoice, onForfeit }: Props) {
@@ -98,7 +99,7 @@ export default function GameScreen({ gameState, onMakeChoice, onForfeit }: Props
           />
 
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
-            <span className="battle-vs">VS</span>
+            <img src="/images/VS.png" alt="VS" className="battle-vs" />
           </div>
 
           <CardReveal
@@ -126,7 +127,7 @@ export default function GameScreen({ gameState, onMakeChoice, onForfeit }: Props
 
         {/* Card selector */}
         <div className="card-selector">
-          {CARDS.map(({ type, emoji, labelTop, labelBot, desc }) => {
+          {CARDS.map(({ type, img, labelTop, labelBot, desc }) => {
             const selected  = myChoice === type;
             const disabled  = isRevealing || !!myChoice;
             const faded     = disabled && !selected;
@@ -142,11 +143,11 @@ export default function GameScreen({ gameState, onMakeChoice, onForfeit }: Props
                 ]
                   .filter(Boolean)
                   .join(' ')}
-                onClick={() => onMakeChoice(type)}
+                onClick={() => { audio.playCard(); onMakeChoice(type); }}
                 disabled={disabled}
                 aria-label={`Escolher ${labelTop} ${labelBot}`}
               >
-                <span className="card-emoji">{emoji}</span>
+                <img src={img} alt={labelTop} className="card-selector-img" />
                 <span className="card-labels">
                   <span className="card-label-top">{labelTop}</span>
                   <span className="card-label-bot">{labelBot}</span>

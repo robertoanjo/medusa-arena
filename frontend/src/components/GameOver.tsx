@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { audio } from '../lib/audio';
 
 interface Info {
   won: boolean;
@@ -19,9 +20,12 @@ export default function GameOver({ info, onPlayAgain }: Props) {
   const [show, setShow] = useState(false);
 
   useEffect(() => {
-    const t = setTimeout(() => setShow(true), 100);
+    const t = setTimeout(() => {
+      setShow(true);
+      if (won) audio.playWin(); else audio.playLose();
+    }, 100);
     return () => clearTimeout(t);
-  }, []);
+  }, [won]);
 
   if (!show) return null;
 
@@ -35,7 +39,11 @@ export default function GameOver({ info, onPlayAgain }: Props) {
 
   return (
     <div className="gameover">
-      <span className="gameover-icon">{won ? '🏆' : '🗿'}</span>
+      <img
+        src={won ? '/images/trofeu.png' : '/images/guerreiro-petrificado.png'}
+        alt={won ? 'Troféu da Vitória' : 'Guerreiro Petrificado'}
+        className={`gameover-icon-img ${won ? 'victory' : 'defeat'}`}
+      />
 
       <h1 className={`gameover-title ${won ? 'won' : 'lost'}`}>
         {won

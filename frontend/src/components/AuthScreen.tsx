@@ -60,7 +60,7 @@ export default function AuthScreen({ onAuth, verifiedMsg }: Props) {
   const resendVerification = async () => {
     setResendLoading(true);
     try {
-      await fetch('/api/auth/resend-verification', {
+      await fetch('/api/auth/verify-email', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ email: registeredEmail }),

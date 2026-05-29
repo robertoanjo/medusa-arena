@@ -9,10 +9,10 @@ interface Props {
   label: string;
 }
 
-const CARD_CONFIG: Record<CardType, { emoji: string; name: string[] }> = {
-  SHIELD: { emoji: '🛡️', name: ['Escudo', 'Espelhado'] },
-  VEIL:   { emoji: '🌫️', name: ['Véu',    'Místico']   },
-  MEDUSA: { emoji: '🐍', name: ['Cabeça',  'da Medusa'] },
+const CARD_CONFIG: Record<CardType, { img: string; name: string[] }> = {
+  SHIELD: { img: '/images/card-shield.png', name: ['Escudo', 'Espelhado'] },
+  VEIL:   { img: '/images/card-veil.png',   name: ['Véu',    'Místico']   },
+  MEDUSA: { img: '/images/card-medusa.png', name: ['Cabeça',  'da Medusa'] },
 };
 
 export default function CardReveal({ card, flipped, isWinner, isLoser, label }: Props) {
@@ -46,16 +46,15 @@ export default function CardReveal({ card, flipped, isWinner, isLoser, label }: 
       </span>
       <div className={classes}>
         <div className="reveal-card-inner">
-          {/* Back (face-down) */}
+          {/* Back (face-down) — usa a arte do verso da carta */}
           <div className="reveal-card-back">
-            <span>⚔️</span>
-            <span className="card-label-sm">Escolhendo</span>
+            <img src="/images/card-back.png" alt="Carta" className="card-img-fill" />
           </div>
-          {/* Front (revealed) */}
+          {/* Front (revealed) — usa a ilustração da carta */}
           <div className="reveal-card-front">
             {cfg && (
               <>
-                <span className="card-emoji-lg">{cfg.emoji}</span>
+                <img src={cfg.img} alt={cfg.name[0]} className="card-img-art" />
                 <span className="card-name-sm">
                   {cfg.name[0]}<br />{cfg.name[1]}
                 </span>
