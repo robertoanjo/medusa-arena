@@ -409,7 +409,7 @@ export default function AdminDashboard() {
 
       {/* ── Overview tab ── */}
       {tab === 'overview' && (
-        <div style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        <div style={{ flex: 1, overflowY: 'auto', height: 0, padding: 24 }}>
           <Overview secret={secret} />
         </div>
       )}
