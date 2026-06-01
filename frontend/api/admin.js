@@ -2,7 +2,7 @@ const { db } = require('./_lib/supabase-admin');
 
 function checkAdmin(req) {
   const secret = req.headers.authorization?.replace('Bearer ', '');
-  return secret && secret === process.env.ADMIN_SECRET;
+  return secret && secret === (process.env.ADMIN_SECRET || '').trim();
 }
 
 module.exports = async function handler(req, res) {
@@ -31,6 +31,63 @@ module.exports = async function handler(req, res) {
     }));
 
     return res.json(games);
+  }
+
+  // ── GET ?stats=1 — dados globais do dashboard ─────────────────────────────
+  if (req.method === 'GET' && req.query.stats) {
+    const now      = new Date();
+    const todayISO = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    const weekISO  = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+    const [
+      { count: totalPlayers },
+      { count: totalGames },
+      { data:  gamesData },
+      { count: gamesToday },
+      { count: gamesWeek },
+      { count: newPlayersWeek },
+      { count: activeSessions },
+      { data:  topPlayers },
+      { data:  recentGames },
+    ] = await Promise.all([
+      db.from('players').select('*', { count: 'exact', head: true }),
+      db.from('games').select('*', { count: 'exact', head: true }).eq('ended', true),
+      db.from('games').select('turn_number').eq('ended', true),
+      db.from('games').select('*', { count: 'exact', head: true }).eq('ended', true).gte('created_at', todayISO),
+      db.from('games').select('*', { count: 'exact', head: true }).eq('ended', true).gte('created_at', weekISO),
+      db.from('players').select('*', { count: 'exact', head: true }).gte('created_at', weekISO),
+      db.from('sessions').select('*', { count: 'exact', head: true }),
+      db.from('players').select('name, wins, losses, points').order('points', { ascending: false }).limit(10),
+      db.from('games')
+        .select('id, player_a, player_b, winner_name, result, turn_number, created_at')
+        .eq('ended', true)
+        .order('created_at', { ascending: false })
+        .limit(8),
+    ]);
+
+    const totalTurns = (gamesData || []).reduce((s, g) => s + (g.turn_number || 0), 0);
+    const avgTurns   = totalGames > 0 ? Math.round(totalTurns / totalGames) : 0;
+
+    return res.json({
+      totalPlayers:   totalPlayers  || 0,
+      totalGames:     totalGames    || 0,
+      totalTurns,
+      avgTurns,
+      gamesToday:     gamesToday    || 0,
+      gamesWeek:      gamesWeek     || 0,
+      newPlayersWeek: newPlayersWeek || 0,
+      activeSessions: activeSessions || 0,
+      topPlayers:     topPlayers    || [],
+      recentGames:    (recentGames  || []).map(g => ({
+        id:         g.id,
+        player_a:   g.player_a,
+        player_b:   g.player_b,
+        winner:     g.winner_name,
+        forfeit:    g.result === 'forfeit',
+        turns:      g.turn_number,
+        created_at: g.created_at,
+      })),
+    });
   }
 
   // ── GET — lista todos os jogadores ─────────────────────────────────────────
